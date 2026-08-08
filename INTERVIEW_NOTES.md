@@ -88,4 +88,64 @@ A: Commit saves a snapshot locally. Push uploads commits to a remote server (Git
 
 ---
 
-*(Session 2 notes will be appended below this line.)*
+## Session 2 — 2026-08-08
+
+### Topics covered
+- Writing your own Node modules (`module.exports`, `require('./file')`)
+- Synchronous vs asynchronous execution — the event loop, `setTimeout`
+- Real debugging: unsaved file causing "X is not a function"
+
+### Key concepts (quick recall)
+
+**Your own modules**
+```js
+// math.js
+function add(a, b) { return a + b; }
+module.exports = add;               // single export
+
+// or, multiple exports:
+module.exports = { add, subtract }; // shorthand property syntax for { add: add, subtract: subtract }
+```
+```js
+// index.js
+const add = require('./math');      // './' = local file, no built-in/npm package
+console.log(add(2, 3));             // 5
+```
+- Only what's assigned to `module.exports` is visible outside the file — everything else stays private (like a function with no header declaration in C).
+- `require('./math')` works without `.js` — Node automatically assumes the `.js` extension for local file requires.
+- `require('./math')` (relative path) = local file. `require('express')` (bare name) = built-in or installed npm package from `node_modules`.
+
+**Debugging reminder:** "TypeError: X is not a function" right after a fresh `require` often means either (a) you forgot `module.exports`, or (b) **you didn't save the file** — Node reads what's on disk, not your editor's unsaved buffer. Check both.
+
+**Synchronous vs asynchronous / the event loop**
+```js
+console.log("Start");
+setTimeout(() => console.log("Async task done"), 2000);
+console.log("End");
+// Output: Start, End, (2s later) Async task done
+```
+- `setTimeout(fn, ms)` does NOT pause execution — it schedules `fn` for later and immediately continues to the next line ("drop a letter in a mailbox and walk away — don't stand there waiting for it to be delivered").
+- Contrast with C's blocking `sleep()`: in blocking code, later statements must wait their turn, so a delayed print happens *before* whatever comes after it in the file. In JS's non-blocking model, the delayed print happens *after* everything already scheduled to run synchronously — non-blocking code lets later statements "jump ahead" of anything still waiting.
+- This is *why* one Node server can serve thousands of concurrent requests without one slow database query freezing everything else: while one request waits on I/O, Node moves on and serves others.
+
+### Interview Q&A (own words)
+
+**Q: Why does a Node file need `module.exports`? What happens if you forget it?**
+A: It tells Node what to expose to other files. Forgetting it means nothing is shared — a file trying to `require()` this one gets nothing usable, leading to "X is not a function" errors.
+
+**Q: Difference between `require('./math')` and `require('express')`?**
+A: `./math` loads a local file relative to the current file. `express` (no relative path) loads an installed npm package from `node_modules` (or a Node built-in if no package exists).
+
+**Q: Why doesn't `setTimeout` freeze the program?**
+A: It schedules the callback and returns control immediately — like dropping a letter in a mailbox and walking away rather than standing there waiting for delivery. The rest of the synchronous code keeps running; the callback fires later once its timer is up and the call stack is clear.
+
+**Q: Why does this matter for a server vs. a single-user CLI program?**
+A: A server juggles many users at once. If every request blocked until finished (like C's blocking I/O), one slow request would freeze everyone else's. Non-blocking async lets Node work on other requests while one waits on a timer/file/database, keeping the server responsive under load.
+
+### Mistakes I made (worth remembering)
+- Tested `require('./math')` before actually saving `math.js` — got `TypeError: add is not a function` purely because the file on disk was still stale. Lesson: when behavior doesn't match what's in the editor, check whether the file is actually saved first.
+- On the sync-vs-async trace, kept comparing only 2 of the 3 relevant print statements (dropped "Async task done" from the C blocking trace) until walking through it line-by-line — worth fully re-deriving a trace instead of pattern-matching against a previous answer.
+
+---
+
+*(Session 3 notes will be appended below this line.)*
