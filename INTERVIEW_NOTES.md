@@ -148,4 +148,67 @@ A: A server juggles many users at once. If every request blocked until finished 
 
 ---
 
-*(Session 3 notes will be appended below this line.)*
+## Session 3 — 2026-08-08
+
+### Topics covered
+- Promises (`new Promise`, `resolve`/`reject`, `.then()`/`.catch()`)
+- `async`/`await` as syntax sugar over Promises
+- **Week 1 complete** — next up: Express (Week 2)
+
+### Key concepts (quick recall)
+
+**Promises**
+```js
+function wait(ms) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => resolve("Done waiting!"), ms);
+  });
+}
+
+wait(2000).then((message) => console.log(message));
+```
+- Calling a function that returns a Promise gives you the Promise object *immediately* — not the eventual value. The promise starts `pending`, then settles as `fulfilled` (via `resolve(value)`) or `rejected` (via `reject(error)`).
+- `.then(value => ...)` runs on fulfillment; `.catch(err => ...)` runs on rejection.
+- If neither `resolve()` nor `reject()` is ever called, the promise stays `pending` forever — `.then()`/`.catch()` never fire.
+- Promises exist to avoid **callback hell** — deeply nested callbacks that get unreadable once you chain several async steps.
+
+**async/await — built on top of Promises, not a separate mechanism**
+```js
+async function main() {
+  try {
+    const user = await fetchUserData(5);
+    console.log(user);
+  } catch (error) {
+    console.log(error.message);
+  }
+}
+main();
+```
+- `async function` always returns a Promise and unlocks `await` inside it.
+- `await someExpression` pauses *only that function* until the promise settles, then gives you the resolved value directly — the rest of the program (other functions, other requests) keeps running.
+- A rejected `await` is thrown as a regular error — that's why you use `try/catch` instead of `.catch()`.
+- `await` cannot be used inside a non-`async` function (syntax error).
+- Since it's the same mechanism underneath, `.then()` and `await` *can* be mixed in one codebase, but pick one style (prefer `async`/`await`) for consistency.
+
+**Why this matters for Express (coming next):** route handlers that query a database are marked `async` so you can `await` the query — the handler pauses without blocking the whole server, so other users' requests keep being served in the meantime.
+
+### Interview Q&A (own words)
+
+**Q: What problem do Promises solve that raw callbacks don't?**
+A: They make async code easier to read, chain, and handle errors for — avoiding "callback hell" (deeply nested callbacks) when you have multiple async steps in sequence.
+
+**Q: Is async/await separate from Promises?**
+A: No — it's built directly on top of Promises, just cleaner syntax. Since it's the same mechanism, `.then()` and `await` can technically be mixed, but it's better to pick one style consistently.
+
+**Q: Why try/catch instead of .catch() with await?**
+A: A rejected promise under `await` is thrown as a regular error, so `try/catch` is the natural way to catch it — `.catch()` is the `.then()`-chain equivalent.
+
+**Q: Why mark a database-querying Express route handler async?**
+A: The query returns a Promise; `async` unlocks `await` so the code reads top-to-bottom instead of nesting `.then()`s, while the server keeps handling other requests during the wait instead of blocking.
+
+### Mistakes I made (worth remembering)
+- None major this session — Promise creation, resolve/reject logic, and the async/await rewrite were all correct on the first real attempt. Debugging skill from Session 2 (checking the actual top-of-error message, not just the generic stack trace tail) is starting to transfer.
+
+---
+
+*(Session 4 notes will be appended below this line.)*
