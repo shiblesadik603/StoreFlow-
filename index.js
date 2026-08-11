@@ -1,13 +1,19 @@
-const os = require("os");
+const fetchUserData = require("./user");
 
-const serverName = "BackendJourney";
+async function main() {
+    try {
+        const user = await fetchUserData(5);
+        console.log(user);
+    } catch (error) {
+        console.log(error.message);
+    }
 
-function getGreeting(name) {
-    return `Hello from ${name}!`;
+    try {
+        const user = await fetchUserData(-1);
+        console.log(user);
+    } catch (error) {
+        console.log(error.message);
+    }
 }
 
-console.log(getGreeting(serverName));
-
-console.log(os.platform());
-
-console.log(os.freemem());
+main();
