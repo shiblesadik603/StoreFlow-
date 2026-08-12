@@ -211,4 +211,72 @@ A: The query returns a Promise; `async` unlocks `await` so the code reads top-to
 
 ---
 
-*(Session 4 notes will be appended below this line.)*
+## Session 4 — 2026-08-12
+
+### Topics covered
+- Express basics: `app.get()`, route handlers, `res.send()` vs `res.json()`
+- Route parameters (`req.params`) and manual type conversion
+- HTTP status codes (`res.status(code)`) and why they matter beyond the response body
+- **Week 2 (Express) started**
+
+### Key concepts (quick recall)
+
+**Minimal Express server**
+```js
+const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send('Hello from Express!');
+});
+
+app.get('/products', (req, res) => {
+  res.json([{ id: 1, name: 'laptop', price: 1200 }]);
+});
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+- Express sits on top of Node's raw `http` module — it gives you routing (`app.get/post/put/delete`), simplified `req`/`res` objects, and middleware support, so you don't manually parse URLs/methods for every route.
+- `app.listen()` keeps the process running indefinitely (unlike earlier scripts that ran once and exited) — stop it with `Ctrl+C`.
+- `res.send(data)` sends any type (text/HTML/object). `res.json(data)` specifically serializes to JSON and sets the `Content-Type: application/json` header — use this for APIs.
+
+**Route parameters**
+```js
+app.get('/products/:id', (req, res) => {
+  const id = Number(req.params.id);          // req.params.id is ALWAYS a string
+  const product = products.find(p => p.id === id);
+  if (!product) {
+    return res.status(404).json({ message: "product not found." });
+  }
+  res.json(product);
+});
+```
+- `:id` in a path is a placeholder; the actual URL segment lands in `req.params.id` — always as a **string**, regardless of what it looks like.
+- Comparing directly (`req.params.id === product.id`) silently fails: `"1" === 1` is `false` under JS's strict equality (type AND value must match). Must convert first: `Number(req.params.id)`.
+- Multiple params are allowed: `/products/:category/:id` → `req.params` = `{ category: "...", id: "..." }`, both strings.
+
+**Status codes matter independently of the JSON body**
+- `res.status(404).json({...})` sets the actual HTTP status line (verified for real with `curl -i` — confirmed `200 OK` for a found product, `404 Not Found` for both a missing numeric id and a non-numeric id like `"electronics"`).
+- Clients (browsers, frontend `fetch`, other APIs) check the **status code** to decide success/failure programmatically — the JSON body is just extra detail for logging/display. A `200` with `{"error": "not found"}` in the body would mislead client code that only checks `response.ok`.
+- A non-numeric id like `/products/electronics` doesn't crash — `Number("electronics")` is `NaN`, and `NaN === anything` is always `false`, so it naturally falls into the same "not found" branch.
+
+### Interview Q&A (own words)
+
+**Q: What does Express add on top of Node's http module?**
+A: Easy routing (`app.get()`, etc.), simplified `req`/`res` handling, middleware support, and convenience methods like `res.json()` — without it you'd manually parse URLs/methods and format every response by hand.
+
+**Q: Why convert `req.params.id` with `Number()`?**
+A: URL segments are always strings. Product ids are numbers. `1 === "1"` is `false` under strict equality (type must match too), so comparing without converting first would never find a match even for valid ids.
+
+**Q: Why does the status code matter if the JSON body already explains the error?**
+A: Status codes are what client programs (browsers, `fetch`, other servers) check programmatically to know success/failure. The JSON body is extra detail for humans/logging — a wrong status code (e.g. `200` on an error) can mislead client logic that only checks `response.ok`.
+
+**Q: Difference between res.send() and res.json()?**
+A: `res.send()` sends whatever you give it (text, HTML, buffer, object). `res.json()` is specifically for JSON — it serializes the value and sets the correct `Content-Type` header automatically.
+
+### Mistakes I made (worth remembering)
+- None on the core logic this session — Promise → async/await → Express carried over cleanly. The only gap was answering only half of a two-part question (explained *why* `req.params.id` is a string, initially skipped *what breaks* if you don't convert it) — same "finish both halves" pattern as earlier sessions, worth staying alert to on future two-part questions.
+
+---
+
+*(Session 5 notes will be appended below this line.)*
