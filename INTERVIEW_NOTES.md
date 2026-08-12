@@ -279,4 +279,68 @@ A: `res.send()` sends whatever you give it (text, HTML, buffer, object). `res.js
 
 ---
 
-*(Session 5 notes will be appended below this line.)*
+## Session 5 — 2026-08-12
+
+### Topics covered
+- Express middleware: `app.use()`, custom middleware functions, the `next` parameter
+- `express.json()` for parsing request bodies
+- `POST` route with validation, `201 Created`
+- Real bug: confused `400` vs `404` on the not-found case — caught and fixed
+
+### Key concepts (quick recall)
+
+**Middleware signature and registration**
+```js
+function logger(req, res, next) {
+  console.log(`${req.method} ${req.url}`);
+  next(); // MUST call this or the request hangs forever
+}
+
+app.use(logger);              // runs before every route registered AFTER this line
+app.use(express.json());      // built-in middleware — parses JSON body into req.body
+```
+- Middleware takes **three** params: `(req, res, next)` — the extra `next` is what separates it from a route handler.
+- Forgetting `next()` (and not sending a response) makes the request hang forever — Express just keeps waiting.
+- **Order matters.** Express runs middleware/routes top-to-bottom in registration order. Middleware placed *after* a route that already sent a response never runs for that route.
+
+**POST with validation**
+```js
+app.post('/products', (req, res) => {
+  const { name, price } = req.body;
+  if (!name || typeof price !== "number" || price <= 0) {
+    return res.status(400).json({ message: "Invalid name or price!" });
+  }
+  const newProduct = { id: products.length + 1, name, price };
+  products.push(newProduct);
+  res.status(201).json(newProduct);
+});
+```
+- `express.json()` is needed for `POST`/`PUT` because they carry a request body that needs parsing into `req.body`. `GET` requests don't typically have a body — they get data from `req.params`/`req.query` instead.
+- `201 Created` is the correct status for a successful resource creation (not `200`).
+
+**400 vs 404 — real bug caught this session**
+- `400 Bad Request` = the client's request itself is malformed (missing/invalid fields in the body). Example: `POST /products` with no `price`.
+- `404 Not Found` = the request was well-formed, but the specific resource doesn't exist. Example: `GET /products/999`.
+- Accidentally wrote `400` for the not-found case in `GET /products/:id` (a regression from Session 4's correct `404`) — caught via review, fixed, and re-verified for real with `curl -i` rather than trusting the code by eye.
+
+### Interview Q&A (own words)
+
+**Q: What is `next` for, and what happens if you forget it?**
+A: `next()` passes control to the next middleware or route handler in the chain. Without calling it (and without sending a response), the request just hangs — Express keeps waiting indefinitely.
+
+**Q: Why does middleware/route order matter?**
+A: Express executes them top-to-bottom in registration order. Middleware placed after a route that already responded won't run for that route's requests.
+
+**Q: Difference between 400 and 404?**
+A: `400` = the client sent invalid data (e.g. missing `price` in a `POST` body). `404` = the request was valid, but the requested resource doesn't exist (e.g. `GET /products/999`).
+
+**Q: Why does `express.json()` matter for POST/PUT but not GET?**
+A: POST/PUT typically send a JSON body that needs parsing into `req.body`. GET requests get their data from the URL (`req.params`) or query string (`req.query`), not a body.
+
+### Mistakes I made (worth remembering)
+- Wrote `res.status(400)` for a not-found case that should have been `404` — a real regression from a previous session's correct code, not a new concept misunderstanding. Lesson: when rewriting/consolidating code across sessions, re-verify old correct behavior didn't silently change, don't just trust that "it looks the same."
+- On the first verification request, pasted a repeat of an earlier `POST` `curl` output instead of running the actual `GET /products/999` command asked for — worth double-checking which command is actually being run before pasting terminal output.
+
+---
+
+*(Session 6 notes will be appended below this line.)*
