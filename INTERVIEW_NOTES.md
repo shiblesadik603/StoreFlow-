@@ -343,4 +343,78 @@ A: POST/PUT typically send a JSON body that needs parsing into `req.body`. GET r
 
 ---
 
-*(Session 6 notes will be appended below this line.)*
+## Session 6 — 2026-08-16
+
+### Topics covered
+- `PUT` and `DELETE` routes — completing CRUD
+- Object references vs. primitives (mutating via `.find()`'s returned reference)
+- Error-handling middleware (4-param signature), sync vs. async error catching
+- Real debugging: a stale server process silently serving old code
+
+### Key concepts (quick recall)
+
+**PUT / DELETE**
+```js
+app.put('/products/:id', (req, res) => {
+  const product = products.find(p => p.id === Number(req.params.id));
+  if (!product) return res.status(404).json({ message: "product not found." });
+  const { name, price } = req.body;
+  if (!name || typeof price !== "number" || price <= 0) {
+    return res.status(400).json({ message: "Invalid name or price!" });
+  }
+  product.name = name;      // mutates the ACTUAL array entry — see below
+  product.price = price;
+  res.json(product);
+});
+
+app.delete('/products/:id', (req, res) => {
+  const index = products.findIndex(p => p.id === Number(req.params.id));
+  if (index === -1) return res.status(404).json({ message: "product not found." });
+  products.splice(index, 1);
+  res.status(204).send();   // success, no body
+});
+```
+- `.findIndex()` returns a position (needed for `.splice()`); `.find()` returns the object itself — can't `.splice()` with an object.
+- `204 No Content` = success with no response body — the right fit for `DELETE`.
+- **Objects are held by reference in JS.** `const product = products.find(...)` gives you a reference to the *actual* object sitting inside the array — mutating `product.name` mutates the array entry directly, no reassignment needed. (Primitives like numbers/strings are copied by value, not reference — this only applies to objects/arrays.)
+
+**Error-handling middleware**
+```js
+app.use((err, req, res, next) => {   // exactly 4 params — how Express recognizes it
+  console.error(err.message);
+  res.status(500).json({ message: "Internal server error!" });
+});                                    // MUST be registered LAST, after all routes
+```
+- The four-parameter signature `(err, req, res, next)` is specifically how Express distinguishes error-handling middleware from regular middleware — must be registered after every route so it can catch what bubbles up from them.
+- **Express 5** (confirmed via `npm list express` → `express@5.2.1` in this project) automatically forwards errors thrown in `async` route handlers (including rejected `await`s) to error-handling middleware — no manual `try/catch` + `next(err)` required. (Express 4 does NOT do this automatically — would need manual catching there.)
+- Verified live: both a synchronous `throw` and an `await Promise.reject(...)` inside an `async` handler were both correctly caught, returned `500`, and — critically — the server kept running and served `/products` normally afterward. A crashing route doesn't have to crash the whole process.
+
+**Real debugging: stale process on a port**
+- `curl -i` only shows what a server *responds* — it can never tell you *which* process/code is actually answering.
+- After fixing real code bugs (missing leading `/` in a route path, a `returnres` typo), `curl` kept returning the *same* stale errors — a strong signal the code fix never actually took effect.
+- `lsof -i :3000` revealed an old `node` process still bound to port 3000 from earlier in the session — it had been silently answering every request the whole time, regardless of any file edits. Killing it (`kill <PID>`) and restarting fresh fixed it immediately.
+- **Lesson:** if a fix "doesn't work" but the error is byte-for-byte identical before and after the fix, suspect you're not actually talking to your new code at all — check what's really running before re-reading your own logic for the tenth time.
+
+### Interview Q&A (own words)
+
+**Q: findIndex()+splice() vs find() for DELETE?**
+A: `findIndex()` gives a position, which `.splice()` needs to remove an item. `.find()` only returns the object itself, not a usable position.
+
+**Q: What does the 4-param `(err, req, res, next)` signature mean, and why last?**
+A: That exact shape is how Express recognizes error-handling middleware. It's registered last so it can catch errors bubbling up from every route defined above it.
+
+**Q: Why doesn't a thrown error in an async Express 5 route crash the server?**
+A: Express 5 automatically catches rejected promises/thrown errors in async handlers and routes them to error-handling middleware instead of letting them propagate as an unhandled crash.
+
+**Q: What was the real root cause of the PUT/DELETE 404s, and what command found it?**
+A: The route code had bugs initially (missing leading slash, a typo), but after fixing those, the exact same errors persisted — because a stale `node` process from earlier in the session was still bound to port 3000, silently serving old code regardless of file edits. `lsof -i :3000` revealed the stray process (`curl -i` never could, since it only shows what a server responds, not which process is actually listening).
+
+### Mistakes I made (worth remembering)
+- Missing leading `/` on a route path (`'products/:id'` instead of `'/products/:id'`) — Express silently never registers it as a match; no error at startup, just a 404 at request time.
+- `returnres.status(...)` — a merged typo (`return res` → `returnres`), parsed as a reference to an undefined variable rather than a syntax error, so it only surfaces at runtime when that code path actually executes.
+- Left a stale `node server.js` process running from earlier in the session on port 3000 — every code fix appeared to silently fail because `curl` was hitting the old process the whole time. Took three rounds of "still broken" before checking `lsof -i :3000` instead of re-reading the code again.
+- On the closing interview question about this exact bug, initially recalled and re-explained the *previous session's* 400-vs-404 bug instead — needed the full timeline restated before correctly identifying the stale-process root cause.
+
+---
+
+*(Session 7 notes will be appended below this line.)*
