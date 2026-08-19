@@ -417,4 +417,72 @@ A: The route code had bugs initially (missing leading slash, a typo), but after 
 
 ---
 
-*(Session 7 notes will be appended below this line.)*
+## Session 7 — 2026-08-19
+
+### Topics covered
+- `express.Router()` — splitting routes into their own files
+- `const`'s temporal dead zone vs. function-declaration hoisting (real bug, twice)
+- **Week 2 (Express) complete** — routing, params, status codes, middleware, CRUD, error handling, and route organization all done
+- Real debugging: terminal tab confusion (server output vs. test output, mixed with git history in one tab)
+
+### Key concepts (quick recall)
+
+**Splitting into a Router**
+```js
+// data/products.js — just the shared data
+const products = [ /* ... */ ];
+module.exports = products;
+
+// routes/products.js — the router
+const express = require('express');
+const router = express.Router();
+const products = require('../data/products');
+
+router.get('/', (req, res) => { res.json(products); });
+router.get('/:id', (req, res) => { /* ... */ });
+// ...post/put/delete...
+
+module.exports = router;
+
+// server.js — mounts it
+const productsRouter = require('./routes/products');
+app.use('/products', productsRouter);   // router paths become relative to this
+```
+- `router.get('/')` mounted at `/products` → full path is `GET /products`. `router.get('/:id')` → `GET /products/:id`.
+- Real benefit beyond "shorter file": each feature area (products, orders, users) becomes an independent module — the main `server.js` doesn't grow tightly coupled to every endpoint as the app scales.
+- Shared data (like the `products` array) belongs in its own third file, not inside the router file — so multiple routers (e.g. a future `routes/orders.js`) can `require()` the same source of truth via Week 1's `module.exports`/`require` mechanism, not separate copies.
+
+**Two real bugs from `const` vs. function-declaration hoisting**
+- Bug 1: `app.use('/products', productsRouter);` written *before* `const app = express();` in the file → `ReferenceError: Cannot access 'app' before initialization`. This is the **temporal dead zone**: `const`/`let` reserve the name early but leave it unusable until their declaration line actually executes.
+- Contrast: `app.use(logger);` written *before* `function logger(req, res, next) {...}` was totally fine — **function declarations are fully hoisted**, definition and all, so they're callable anywhere in their scope regardless of source order. `const`/`let` don't get this treatment.
+- Middleware order still matters independently of hoisting: `app.use(logger)` had to be registered *before* `app.use('/products', productsRouter)` for `/products` requests to actually get logged — once the router handles and responds to a request, anything registered after it in the chain never runs for that request.
+
+### Real debugging story: the terminal tab maze
+- After fixing the router's real code bugs (missing leading `/`, a `returnres` typo), `curl` kept returning identical stale errors — turned out to be **three separate terminal contexts** in play at once: two separate macOS Terminal.app windows plus the IDE's own integrated terminal, each with independent shell state and potentially different `node` processes.
+- One terminal tab had been reused for *both* running the server *and* typing `git`/`curl`/`mkdir` commands over its lifetime — burying the server's live request logs deep in unrelated scrollback, making it look like nothing was being logged when it actually was.
+- `killall node` (kills every `node` process on the machine at once) + `lsof -i :3000` (confirms the port is truly free) was the clean reset that cut through the confusion.
+- **Fix going forward:** dedicate one terminal tab *exclusively* to the running server process (never type anything else into it), and a separate tab exclusively for test commands (`curl`, etc.). Never mix the two.
+
+### Interview Q&A (own words)
+
+**Q: Real benefit of express.Router() beyond a shorter file?**
+A: It organizes related routes into independent modules, so the main server file doesn't become tightly coupled to every single endpoint as the app grows.
+
+**Q: Why did `app.use(logger)` need to be before the router mount?**
+A: Express middleware runs sequentially in registration order. `logger` has to be registered before the router so it can intercept the request before the router handles it and sends a response — after that point, later middleware never runs for that request.
+
+**Q: Difference between the `const` TDZ bug and function-declaration hoisting?**
+A: `const` variables aren't usable before their initialization line runs (temporal dead zone). Function declarations are hoisted with their full definition, so they can be called from anywhere in scope, even "before" their line in the source.
+
+**Q: What terminal habit prevents this session's confusion?**
+A: Use two dedicated tabs — one exclusively running the server, one exclusively for test commands like `curl`. That makes it immediately obvious which terminal owns which running process.
+
+### Mistakes I made (worth remembering)
+- `app.use('/products', productsRouter)` placed before `const app = express()` — real TDZ crash, same class of bug as `let`/`const` scoping from Session 1, now seen with an actual stack trace.
+- Took three attempts to actually move `app.use(logger)` above the router mount — kept pasting the same unchanged file twice before the edit actually landed.
+- Reused one terminal tab for both running the server and typing unrelated commands (git, curl, mkdir) across the whole session — made it genuinely hard to find the server's actual live output later. This was the single biggest time cost of the session, and it wasn't a code problem at all.
+- On the closing debugging-habit question, first gave a generically-good answer (small increments, read errors) instead of the specific lesson this session actually taught (dedicated terminal tabs) — needed a direct nudge back to the actual root cause.
+
+---
+
+*(Session 8 notes will be appended below this line.)*
