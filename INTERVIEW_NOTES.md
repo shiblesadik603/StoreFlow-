@@ -485,4 +485,85 @@ A: Use two dedicated tabs — one exclusively running the server, one exclusivel
 
 ---
 
-*(Session 8 notes will be appended below this line.)*
+## Session 8 — 2026-08-19
+
+### Topics covered
+- Why persistent storage matters (motivated by data loss on every `node server.js` restart, seen firsthand across prior sessions)
+- Relational databases: tables/rows/columns, `CREATE TABLE`, column types and constraints
+- `SERIAL PRIMARY KEY` and sequences vs. array-length-based ids
+- `INSERT`, `SELECT`, `UPDATE`, `DELETE`, and the `WHERE` clause
+- Installed PostgreSQL locally (Homebrew), first real `psql` session
+- Schema-as-code: `db/schema.sql`
+- **Week 3 (database) started**
+
+### Key concepts (quick recall)
+
+**Why a database at all**
+- The in-memory `products` array has been recreated fresh on every `node server.js` restart this whole project — every `POST`/`PUT`/`DELETE` made during a run vanished the moment the process stopped. A real database stores data on disk, independent of the Node process's lifetime.
+
+**Local PostgreSQL setup (macOS/Homebrew)**
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+# postgresql@16 is "keg-only" — not auto-added to PATH:
+echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+psql postgres          # connects to the interactive SQL shell
+```
+- `\c dbname` — switch active database. `\d tablename` — describe a table's columns/types/constraints. `\q` — quit `psql`.
+
+**Tables, mapped directly from the JS array they replace**
+```sql
+CREATE DATABASE storeflow;
+\c storeflow
+
+CREATE TABLE products (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  price NUMERIC NOT NULL
+);
+```
+- Each row = one product object; each column has an explicit **type**, unlike JS's dynamic typing — an invalid insert (e.g. a string into `price`) is rejected by the database itself, not silently accepted.
+- `PRIMARY KEY` = uniquely identifies each row, enforced by the database (not just trusted application code).
+
+**SERIAL / sequences vs. `products.length + 1`**
+- `SERIAL` attaches a persistent **sequence** object (`products_id_seq`) to the column — its whole job is remembering the next id to hand out, via `nextval()`, completely independent of current row count.
+- The old `products.length + 1` trick breaks after a **non-last** deletion: `[1,2,3]` (length 3) → delete id `2` → `[1,3]` (length 2) → next id = `2+1 = 3`, but id `3` is already active — a real collision. `SERIAL` never has this problem: after inserting up to id `5` and deleting one, the *next* insert still gets `6`, never reusing an already-issued number.
+
+**CRUD in SQL**
+```sql
+INSERT INTO products (name, price) VALUES ('laptop', 45000), ('mouse', 400), ('keyboard', 800);
+SELECT * FROM products;
+SELECT * FROM products WHERE id = 2;
+UPDATE products SET price = 500 WHERE id = 2;
+DELETE FROM products WHERE id = 3;
+```
+- No `id` supplied on `INSERT` — the `SERIAL` default handles it automatically.
+- **`WHERE` is what `req.params.id` + `.find()`/`.findIndex()` used to do** in the Express handlers — it's the only thing preventing `UPDATE`/`DELETE` from applying to every row in the table. `UPDATE products SET price = 999;` with no `WHERE` changes *all* rows; `DELETE FROM products;` with no `WHERE` empties the whole table (structure survives, all data doesn't).
+
+**Schema as code (`db/schema.sql`)**
+- Typing `CREATE TABLE` directly into `psql` leaves the schema living only in one person's terminal history — unreproducible, undocumented, and invisible to git.
+- Saving the same statement as a committed file (`db/schema.sql`) makes the database structure reproducible for a new environment/developer, and gives it version history like any other code — the actual start of "migrations" from the Week 3 plan.
+
+### Interview Q&A (own words)
+
+**Q: Why does a real database solve the restart problem?**
+A: Data lives in persistent disk storage managed by the database, not inside the Node process's memory. Restarting Node doesn't touch what's stored in PostgreSQL.
+
+**Q: SERIAL sequence vs. products.length + 1?**
+A: `length + 1` derives the next id from the current row count, which breaks after deleting a non-last row. `SERIAL` uses a persistent sequence that independently remembers every id already issued, regardless of how many rows currently exist.
+
+**Q: Why is WHERE essential in UPDATE/DELETE?**
+A: Without it, the operation applies to every row in the table — `DELETE FROM products;` empties the whole table, `UPDATE products SET price = 999;` overwrites every row's price.
+
+**Q: Why keep schema.sql in git instead of just typing CREATE TABLE into psql?**
+A: It documents and versions the database structure, making it reproducible for new environments/developers and deployments, instead of depending on someone's manual `psql` command history.
+
+### Mistakes I made (worth remembering)
+- Initial explanation of why `SERIAL` beats `length + 1` used an example (deleting the *last* row) that doesn't actually demonstrate a collision — had to be walked through deleting a *non-last* row to see the real bug.
+- Briefly reverted to describing `length + 1` behavior when asked why `INSERT` didn't need an explicit `id` — needed a direct pointer back to the `\d products` output (`nextval(...)`) to self-correct.
+- Ran the `CREATE TABLE` statement a second time inside `psql` (got a harmless "relation already exists" error) when asked to create `db/schema.sql` as an actual file — conflated "a SQL command" with "a file containing SQL text," worth remembering these are different things even though the syntax looks identical.
+
+---
+
+*(Session 9 notes will be appended below this line.)*
