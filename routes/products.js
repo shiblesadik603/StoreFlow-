@@ -1,29 +1,47 @@
 const express = require('express');
 const router = express.Router();
 
-const products = require('../data/products');
-
+//const products = require('../data/products');
+const pool = require('../db/connection');
 
 // GET /products
-router.get('/', (req, res) => {
-    res.json(products);
-});
-
+// router.get('/', (req, res) => {
+//     res.json(products);
+// });
+router.get('/', async (req, res) => {
+    const result = await pool.query('SELECT * FROM products');
+    res.json(result.rows);
+})
 
 // GET /products/:id
-router.get('/:id', (req, res) => {
+// router.get('/:id', (req, res) => {
+//     const id = Number(req.params.id);
+
+//     const product = products.find((product) => product.id === id);
+
+//     if (!product) {
+//         return res.status(404).json({
+//             message: "product not found."
+//         });
+//     }
+
+//     res.json(product);
+// });
+router.get('/:id', async (req, res) => {
     const id = Number(req.params.id);
 
-    const product = products.find((product) => product.id === id);
+    const result = await pool.query(
+        'SELECT * FROM products WHERE id = $1',
+        [id]
+    );
 
-    if (!product) {
+    if (result.rows.length === 0) {
         return res.status(404).json({
             message: "product not found."
         });
     }
-
-    res.json(product);
-});
+    res.json(result.rows[0])
+})
 
 
 // POST /products
@@ -52,9 +70,8 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
     const id = Number(req.params.id);
 
-    const product = products.find(p => p.id === id);
 
-    if (!product) {
+    if (result.rows.length === 0) {
         return res.status(404).json({
             message: "product not found!"
         });
