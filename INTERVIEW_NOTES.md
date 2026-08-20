@@ -566,4 +566,85 @@ A: It documents and versions the database structure, making it reproducible for 
 
 ---
 
-*(Session 9 notes will be appended below this line.)*
+## Session 9 — 2026-08-20
+
+### Topics covered
+- Environment variables: `.env` / `.env.example` / `dotenv`
+- The `pg` package: `Pool`, `pool.query()`, parameterized queries (`$1`) vs. SQL injection
+- PostgreSQL's `NUMERIC` type returning as a JS string
+- Converted first two routes (`GET /products`, `GET /products/:id`) from the in-memory array to real database queries
+- **Node/Express connected to PostgreSQL for real, for the first time**
+
+### Key concepts (quick recall)
+
+**Env vars, the split between `.env` and `.env.example`**
+```
+# .env — real secrets, gitignored, never committed
+DB_USER=smsadik
+DB_PASSWORD=
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=storeflow
+```
+```
+# .env.example — same keys, placeholder values, DOES get committed
+DB_USER=your_db_username
+DB_PASSWORD=your_db_password
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=storeflow
+```
+- `require('dotenv').config()` loads `.env` into `process.env` — must run before anything reads `process.env.X`.
+- All `process.env.X` values are **strings**, even `DB_PORT=5432` — never assume a number without converting.
+- `.env.example` documents *which* variables a new developer/environment needs without exposing real secrets — solves "how does anyone else know what to put in their own `.env`."
+- A password committed to git history isn't safe again just by deleting the file and updating `.gitignore` later — git remembers old commits; a genuinely leaked secret must be rotated (changed), not just hidden going forward.
+
+**The `pg` package**
+```js
+// db/connection.js
+const { Pool } = require('pg');
+require('dotenv').config();
+
+const pool = new Pool({
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+});
+
+module.exports = pool;
+```
+```js
+// usage — always parameterized, never string-concatenated
+const result = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+```
+- `Pool` = a reusable set of open DB connections, avoiding the cost of opening a fresh connection per query.
+- `pool.query()` returns a **Promise** — call it with `await` inside an `async` route handler, same pattern as Week 1.
+- **SQL injection:** string-concatenating user input directly into a query (`'... WHERE id = ' + req.params.id`) lets a malicious value change the query's actual meaning. `$1`/`$2` placeholders keep the SQL text and the data strictly separate — the driver treats placeholder values as pure data, never as executable SQL, no matter what's inside them.
+- `result.rows` is always an **array** — zero matches means `[]`, not `undefined`/`null`. This replaces the old `.find()` → `!product` check with `result.rows.length === 0`.
+
+**Why `price` comes back as a string**
+- PostgreSQL's `NUMERIC` type stores exact decimal values (important for money) with more precision than JS's `Number` type can always safely represent. Rather than risk silently losing precision converting to a JS number, the `pg` driver returns it as a string and leaves the conversion decision to the application.
+
+### Interview Q&A (own words)
+
+**Q: Why does .env never get committed but .env.example does?**
+A: `.env` holds real secrets; `.env.example` holds the same key names with placeholder values so other developers know what config they need to supply, without ever seeing real credentials.
+
+**Q: Why is SQL string concatenation dangerous, and what do $1 placeholders do differently?**
+A: Concatenation lets user-controlled input become part of the actual SQL text — a crafted value can change the query's meaning (SQL injection). `$1` placeholders keep the query structure and the data strictly separate; PostgreSQL always treats the placeholder value as data, never as code.
+
+**Q: Why did result.rows.length === 0 replace the old !product check?**
+A: The old array's `.find()` returned `undefined` on no match. A real query's `result.rows` is always an array — zero matches is an empty array, not `undefined`, so the check has to test length instead.
+
+**Q: Why does NUMERIC come back as a string?**
+A: `NUMERIC` protects exact decimal precision (important for money); returning it as a string avoids the risk of JS's `Number` type silently losing precision on conversion.
+
+### Mistakes I made (worth remembering)
+- Needed extra guidance on the literal mechanics of creating `.env.example` and editing `.gitignore` — not a concept gap, just needed the steps spelled out concretely (which file, which folder, exact content) rather than described abstractly.
+- Left `POST`/`PUT`/`DELETE` referencing the now-removed `products` array (and `PUT` referencing an undefined `result`) after converting only the `GET` routes — expected mid-refactor state (those three routes are explicitly next session's task), not a new bug, but worth remembering the file is intentionally in a partially-converted state right now.
+
+---
+
+*(Session 10 notes will be appended below this line.)*
