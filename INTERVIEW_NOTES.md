@@ -647,4 +647,47 @@ A: `NUMERIC` protects exact decimal precision (important for money); returning i
 
 ---
 
-*(Session 10 notes will be appended below this line.)*
+## Session 10 — 2026-08-21
+
+### Topics covered
+- `RETURNING *` (get the inserted/updated row back in one query) and `result.rowCount` (for `DELETE`)
+- Converted `POST`, `PUT`, `DELETE` from the in-memory array to real PostgreSQL queries
+- **Week 3 core goal complete: all product routes now backed by a real database**
+- Real infrastructure debugging: a stale `postmaster.pid` lock file after an unclean Postgres shutdown
+
+### Key concepts (quick recall)
+
+**`RETURNING` and `rowCount`**
+```sql
+INSERT INTO products (name, price) VALUES ($1, $2) RETURNING *;   -- get the new row (incl. auto id) in one query
+UPDATE products SET name = $1, price = $2 WHERE id = $3 RETURNING *;  -- get the updated row back
+DELETE FROM products WHERE id = $1;    -- no row to return; check result.rowCount instead
+```
+- Rule of thumb: `SELECT`/`INSERT ... RETURNING`/`UPDATE ... RETURNING` → check `result.rows.length` for "not found" (`0` = empty array = no match). `DELETE` → check `result.rowCount` (`0` = nothing was actually deleted).
+- `RETURNING *` avoids a second round-trip query just to find out what `id` `SERIAL` assigned to a fresh `INSERT`.
+
+### Real debugging story: stale `postmaster.pid`
+- Every route — including `GET /products`, unchanged and previously verified working — suddenly returned `500`. Unchanged working code breaking is a strong signal the problem isn't the code at all.
+- `brew services list` showed `postgresql@16` in an `error` state, not `started` — the database wasn't running.
+- Postgres's own log (`/opt/homebrew/var/log/postgresql@16.log`) explained why: `FATAL: lock file "postmaster.pid" already exists... Is another postmaster (PID 572) running?` — Postgres refuses to start if it thinks another instance might already be using the same data directory, to avoid corrupting it.
+- This lock file survives an *unclean* shutdown (crash, force-quit, sleep interruption) even after the actual process is long gone — a "stale lock."
+- **Safety check before touching anything:** `ps -p 572` confirmed PID `572` was a completely unrelated macOS process (`CloudDocs.framework`/iCloud Drive) — the OS had simply reused that PID number after the real Postgres process died. Only once confirmed stale was it safe to `rm` the lock file and restart.
+- **Lesson:** never delete a lock file "because the error says so" without confirming the PID it names isn't actually running something real — deleting a *genuine* lock while two Postgres processes share a data directory can corrupt it. Verify before you act, same principle as `lsof -i :3000` from Session 6/7, applied to a different kind of stale-state bug.
+
+### Interview Q&A (own words)
+
+**Q: Why did RETURNING * avoid a second SELECT after INSERT?**
+A: It makes PostgreSQL hand back the newly inserted row, including the auto-generated `id`, in the same query — no separate lookup needed.
+
+**Q: What does the postmaster.pid bug teach about reading error output?**
+A: Don't stop at the first line — the real cause is often explained further down (or in a separate log file entirely), and stopping early leads to chasing the wrong problem.
+
+**Q: Why was `ps -p 572` an important safety check?**
+A: It confirmed whether PID 572 was actually still running before deleting the lock file. Deleting a lock file while a real Postgres process is still using it could let two instances write to the same data directory and corrupt it.
+
+### Mistakes I made (worth remembering)
+- None on the actual code this session — `POST`/`PUT`/`DELETE` conversions to `RETURNING`/`rowCount` were correct on the first attempt. The entire session's difficulty was infrastructure (Postgres not running), not application logic — a useful reminder that "my code is broken" and "my environment is broken" can look identical from the outside (every route failing), and unchanged-but-now-failing code is the tell for the latter.
+
+---
+
+*(Session 11 notes will be appended below this line.)*
