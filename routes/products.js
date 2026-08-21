@@ -45,7 +45,7 @@ router.get('/:id', async (req, res) => {
 
 
 // POST /products
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
     const { name, price } = req.body;
 
     if (!name || typeof price !== "number" || price <= 0) {
@@ -54,22 +54,34 @@ router.post('/', (req, res) => {
         });
     }
 
-    const newProduct = {
-        id: products.length + 1,
-        name,
-        price,
-    };
+    // const newProduct = {
+    //     id: products.length + 1,
+    //     name,
+    //     price,
+    // };
+    const result = await pool.query(
+        'INSERT INTO products (name,price) VALUES ($1,$2) RETURNING *', [name, price]
+    );
 
-    products.push(newProduct);
-
-    res.status(201).json(newProduct);
+    res.status(201).json(result.rows[0]);
 });
 
 
 // PUT /products/:id
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
     const id = Number(req.params.id);
+    const { name, price } = req.body;
 
+    if (!name || typeof price !== "number" || price <= 0) {
+        return res.status(400).json({
+            message: "Invalid name or price!"
+        });
+    }
+
+    const result = await pool.query(
+        'UPDATE products SET name = $1, price = $2 WHERE id = $3 RETURNING *',
+        [name, price, id]
+    );
 
     if (result.rows.length === 0) {
         return res.status(404).json({
@@ -77,34 +89,24 @@ router.put('/:id', (req, res) => {
         });
     }
 
-    const { name, price } = req.body;
-
-    if (!name || typeof price !== "number" || price <= 0) {
-        return res.status(400).json({
-            message: "Invalid name or price!"
-        });
-    }
-
-    product.name = name;
-    product.price = price;
-
-    res.json(product);
+    res.json(result.rows[0]);
 });
 
 
 // DELETE /products/:id
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
     const id = Number(req.params.id);
 
-    const index = products.findIndex(p => p.id === id);
+    const result = await pool.query(
+        'DELETE FROM products WHERE ID = $1',
+        [id]
+    );
 
-    if (index === -1) {
+    if (result.rowCount === 0) {
         return res.status(404).json({
             message: "product not found."
         });
     }
-
-    products.splice(index, 1);
 
     res.status(204).send();
 });
