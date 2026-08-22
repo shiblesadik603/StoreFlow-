@@ -690,4 +690,91 @@ A: It confirmed whether PID 572 was actually still running before deleting the l
 
 ---
 
-*(Session 11 notes will be appended below this line.)*
+## Session 11 — 2026-08-22
+
+### Topics covered
+- Password hashing with `bcrypt` — one-way hashing, automatic salting, deliberate slowness
+- `users` table schema (`UNIQUE`, `DEFAULT`, `TIMESTAMP`)
+- Built `POST /auth/register` — hashing, excluding `password_hash` from responses
+- Handling PostgreSQL's `unique_violation` (`err.code === '23505'`) → proper `409 Conflict`
+- **Week 4 (Auth) started**
+
+### Key concepts (quick recall)
+
+**Why bcrypt, specifically**
+- Hashing is one-way — you can hash a password but never reverse a hash back to the original.
+- bcrypt auto-generates a random **salt** per password, so identical passwords produce different stored hashes — defeats precomputed rainbow-table attacks.
+- bcrypt is deliberately **slow** (configurable cost factor) — a legitimate login pays that cost once; an attacker brute-forcing millions of guesses pays it millions of times. A fast general-purpose hash (SHA-256) is wrong for passwords precisely because it's *too fast* — cheap to brute-force at scale.
+```js
+const hash = await bcrypt.hash(plainPassword, 10);       // 10 = salt rounds
+const isMatch = await bcrypt.compare(enteredPassword, hash); // never compare plain text directly
+```
+
+**`users` table**
+```sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'customer',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+- `UNIQUE` — no two rows can share a value (used on `email`).
+- `DEFAULT value` — auto-fills when not explicitly provided on `INSERT` (`role` defaults to `'customer'`).
+- No plain `password` column ever exists — only `password_hash`.
+
+**Registration endpoint — two deliberate security details**
+```js
+router.post('/register', async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "Please provide name, email, and password" });
+  }
+  const passwordHash = await bcrypt.hash(password, 10);
+  try {
+    const result = await pool.query(
+      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, role, created_at',
+      [name, email, passwordHash]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ message: "email already exist." });
+    }
+    throw error;
+  }
+});
+```
+1. `RETURNING id, name, email, role, created_at` — explicitly lists columns instead of `RETURNING *`, so `password_hash` (even hashed) is never accidentally sent back to a client, and the API response stays predictable even if the schema gains new sensitive columns later.
+2. `err.code === '23505'` (`unique_violation`) is caught specifically → `409 Conflict`. Any *other* error code is re-thrown (`throw error`) rather than assumed to be a duplicate email — an unrelated failure shouldn't get mislabeled with a misleading message.
+
+**Status code trio, now all used for real reasons**
+- `400 Bad Request` — the request itself is malformed (e.g. missing `email`).
+- `404 Not Found` — the request is well-formed, but the specific resource doesn't exist (e.g. `GET /products/999`).
+- `409 Conflict` — the request is well-formed, but conflicts with existing server state (e.g. email already registered).
+
+**Race conditions and check-then-act (Week 5 preview)**
+- A pre-check (`SELECT` to see if the email exists, then `INSERT` only if not) is **not** reliable under concurrent requests — two requests can both pass the `SELECT` check before either `INSERT` completes, since there's a time gap between "check" and "act." Relying on the database's own `UNIQUE` constraint (and catching `23505` when it fires) is atomic — the database itself is the single source of truth enforcing the rule, not application code racing against itself.
+
+### Interview Q&A (own words)
+
+**Q: Why bcrypt instead of a fast hash like SHA-256 for passwords?**
+A: bcrypt is deliberately slow and automatically salted, making brute-forcing impractical. A fast general-purpose hash is unsuitable for passwords precisely because it's cheap to brute-force at scale.
+
+**Q: Why does RETURNING list columns explicitly instead of RETURNING *?**
+A: It prevents accidentally returning sensitive or unnecessary fields (like `password_hash`) and keeps the API response predictable even if the schema changes later.
+
+**Q: One-line rule for 400 vs 404 vs 409?**
+A: 400 = the request itself is bad/invalid. 404 = the resource doesn't exist. 409 = the request is valid but conflicts with existing server state.
+
+**Q: Why is catching err.code === '23505' safer than pre-checking with SELECT?**
+A: A pre-check can fail under concurrent requests — both requests may see the email as "available" before either finishes inserting. The database's UNIQUE constraint provides atomic protection; `23505` tells you exactly when that constraint rejected the insert.
+
+### Mistakes I made (worth remembering)
+- None this session — schema design, bcrypt usage, `RETURNING` column selection, and the `23505` error-handling pattern were all correct on the first real attempt.
+
+---
+
+*(Session 12 notes will be appended below this line.)*
