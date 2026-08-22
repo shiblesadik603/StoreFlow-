@@ -1,5 +1,6 @@
 const express = require('express');
 const productsRouter = require('./routes/products');
+const authRouter = require('./routes/auth');
 
 const app = express();
 
@@ -7,6 +8,8 @@ const app = express();
 app.use(express.json());
 
 app.use(logger);
+
+app.use('/auth', authRouter);
 
 
 //logger middleware
